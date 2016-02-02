@@ -22,7 +22,7 @@ class ConnectionTestCase(test_base.UnitTestBase):
         super(ConnectionTestCase, self).setUp()
 
         self.connection = aiclib.nvp.Connection("https://localhost",
-          username='fakeuser', password='fakepass', retries=2)
+          username='fakeuser', password='fakepass', retries=2, backoff=0)
 
     def test_connection_retries_unauthorized(self):
 
@@ -32,7 +32,7 @@ class ConnectionTestCase(test_base.UnitTestBase):
         self._add_response(
             '/ws.v1/login', status=200, headers={'set-cookie': 'fakecookie'})
         self._add_response(
-            '/ws.v1/login', status=200, headers={'set-cookie': 'fakecookie'})
+            '/ws.v1/login', status=200, headers={'set-cookie': 'fakecookie2'})
 
         self._add_response(
             '/ws.v1/lswitch', status=200, body=fixtures.LSWITCH_Q,
@@ -46,8 +46,22 @@ class ConnectionTestCase(test_base.UnitTestBase):
                      "content-length": str(len(fixtures.LSWITCH_Q))})
 
         # First call, should succeed
-        self.connection.lswitch().query().results()
-
+        response = self.connection.lswitch().query().results()
         # Second call, should be unauthorized, reauth, and then succeed.
-        self.connection.lswitch().query().results()
+        response2 = self.connection.lswitch().query().results()
+
+        # sanity check response object
+        self.assertEqual(response['results'][0]['display_name'],
+                         'lswitch1')
+        self.assertEqual(response, response2)
+
+        # 2x auth and 3x lswitch query
+        self.assertEqual(len(self._calls), 5)
+
+        # Assert the value of the Cookie is set correctly - first 2
+        # lswitch calls use the first cookie, the second one 401s,
+        # reauth happens, and the 3rd call uses the new cookie.
+        self.assertEqual(self._calls[1][3]['Cookie'], 'fakecookie')
+        self.assertEqual(self._calls[2][3]['Cookie'], 'fakecookie')
+        self.assertEqual(self._calls[4][3]['Cookie'], 'fakecookie2')
 

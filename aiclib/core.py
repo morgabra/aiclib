@@ -191,7 +191,7 @@ class Connection(object):
 
         open_args = {'method': method}
         open_kwargs = {'retries': False, 'timeout': self.timeout,
-                       'headers': self.headers, 'assert_same_host': False}
+                       'assert_same_host': False}
         # we'll handle retries here, not in urllib3
         open_kwargs['body'], url = self._prep_body_and_url(method, url, body,
                                                            is_url_prepared,
@@ -202,6 +202,10 @@ class Connection(object):
             # can't prematurely skip the redirect if retries is 0
             retries = 1
         while retries > 0:
+            # We need to reset headers every try, because it's possible
+            # that we have 401'd and re-authed.
+            open_kwargs['headers'] = self.headers
+
             try:
                 r = self.connection.urlopen(open_args['method'],
                                             open_args['url'], redirect=False,
@@ -244,6 +248,15 @@ class Connection(object):
             # be gentle with NVP using exponential backoff
             time.sleep(self.backoff)
             self.backoff = self.backoff ** 2
+
+        # If we make it this far, we were unable to get a successful
+        # request returned, we need to raise.
+        comment = "Maximum retries/redirects exceeded."
+        if r:
+            comment = (comment + " Last request: %s: %s"
+                       % (r.reason, r.data))
+        logger.error(comment)
+        raise AICException(500, comment)
 
     def _handle_headers(self, resp):
         return

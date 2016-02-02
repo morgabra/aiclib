@@ -17,12 +17,14 @@ import tests.base as test_base
 
 from tests.unit import fixtures
 
+
 class ConnectionTestCase(test_base.UnitTestBase):
     def setUp(self):
         super(ConnectionTestCase, self).setUp()
 
-        self.connection = aiclib.nvp.Connection("https://localhost",
-          username='fakeuser', password='fakepass', retries=2, backoff=0)
+        self.connection = aiclib.nvp.Connection(
+            "https://localhost", username='fakeuser', password='fakepass',
+            retries=2, backoff=0)
 
     def test_connection_retries_unauthorized(self):
 
@@ -58,6 +60,32 @@ class ConnectionTestCase(test_base.UnitTestBase):
         # 2x auth and 3x lswitch query
         self.assertEqual(len(self._calls), 5)
 
+    def test_connection_reauth_uses_new_cookie(self):
+
+        # we expect to query lswitches (and auth once), return 401 on the
+        # second lswitch query (triggering a re-auth), and finally succeed
+        # the third call.
+        self._add_response(
+            '/ws.v1/login', status=200, headers={'set-cookie': 'fakecookie'})
+        self._add_response(
+            '/ws.v1/login', status=200, headers={'set-cookie': 'fakecookie2'})
+
+        self._add_response(
+            '/ws.v1/lswitch', status=200, body=fixtures.LSWITCH_Q,
+            headers={"content-type": "application/json",
+                     "content-length": str(len(fixtures.LSWITCH_Q))})
+        self._add_response(
+            '/ws.v1/lswitch', status=401, reason='Unauthorized')
+        self._add_response(
+            '/ws.v1/lswitch', status=200, body=fixtures.LSWITCH_Q,
+            headers={"content-type": "application/json",
+                     "content-length": str(len(fixtures.LSWITCH_Q))})
+
+        # First call, should succeed
+        self.connection.lswitch().query().results()
+        # Second call, should be unauthorized, reauth, and then succeed.
+        self.connection.lswitch().query().results()
+
         # Assert the value of the Cookie is set correctly - first 2
         # lswitch calls use the first cookie, the second one 401s,
         # reauth happens, and the 3rd call uses the new cookie.
@@ -65,3 +93,26 @@ class ConnectionTestCase(test_base.UnitTestBase):
         self.assertEqual(self._calls[2][3]['Cookie'], 'fakecookie')
         self.assertEqual(self._calls[4][3]['Cookie'], 'fakecookie2')
 
+    def test_connection_retry_exhaustion_raises(self):
+
+        # we expect to query lswitches (and auth once), return 401 on the
+        # second lswitch query (triggering a re-auth), and finally succeed
+        # the third call.
+        self._add_response(
+            '/ws.v1/login', status=200, headers={'set-cookie': 'fakecookie'})
+        self._add_response(
+            '/ws.v1/login', status=200, headers={'set-cookie': 'fakecookie'})
+        self._add_response(
+            '/ws.v1/login', status=200, headers={'set-cookie': 'fakecookie'})
+
+        self._add_response(
+            '/ws.v1/lswitch', status=401, reason='Unauthorized')
+        self._add_response(
+            '/ws.v1/lswitch', status=401, reason='Unauthorized')
+
+        msg = 'Maximum retries/redirects exceeded.'
+        with self.assertRaises(aiclib.core.AICException) as e:
+            self.connection.connection.request('GET', '/ws.v1/lswitch')
+
+        self.assertEqual(e.exception.code, 500)
+        self.assertTrue(msg in e.exception.message)

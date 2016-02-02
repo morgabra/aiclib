@@ -253,8 +253,8 @@ class Connection(object):
         # request returned, we need to raise.
         comment = "Maximum retries/redirects exceeded."
         if r:
-            comment = (comment + " Last request: %s: %s"
-                       % (r.reason, r.data))
+            comment = (comment + " Last request: %s %s %s"
+                       % (r.status, r.reason, r.data))
         logger.error(comment)
         raise AICException(500, comment)
 

@@ -71,7 +71,8 @@ class UnitTestBase(tests.TestCase):
         self._patcher.start()
         self.addCleanup(self._patcher.stop)
 
-    def _add_response(self, url, status=200, reason=None, body=None, headers=None):
+    def _add_response(self, url, status=200, reason=None,
+                      body=None, headers=None):
         path = urlparse(url).path
         self._responses[path].append(_fake_response(
             status, reason, body, headers))

@@ -180,8 +180,12 @@ class Connection(object):
         return new_body, new_url
 
     def request(self, method, url, generationnumber=0, body=None,
-                retries=0, is_url_prepared=False, is_body_prepared=False,
+                retries=None, is_url_prepared=False, is_body_prepared=False,
                 max_redirects=5):
+
+        if retries is None:
+            retries = self.retries
+
         if not self.authenticated:
             self._login(self.username, self.password)
 
